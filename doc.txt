@@ -1,0 +1,40 @@
+
+https://medium.com/i-love-my-local-farmer-engineering-blog/monitoring-serverless-java-applications-b0f15c487364
+
+https://github.com/aws-samples/i-love-my-local-farmer/tree/main/DeliveryApi
+
+https://aws.amazon.com/blogs/compute/operating-lambda-logging-and-custom-metrics/
+
+https://github.com/awslabs/aws-embedded-metrics-java
+
+https://docs.aws.amazon.com/pt_br/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format.html
+
+
+
+Lambda Metricas
+
+
+Antes de nos aprofundarmos na configuração de nossas métricas e painéis, é importante dar uma olhada em como essas métricas são organizadas no serviço de observabilidade da AWS, Cloudwatch. Para isso, teremos que estar familiarizados com três conceitos importantes — namespaces, dimensões e, finalmente, as próprias métricas. Um namespace é um agrupamento de métricas que permite que sejam organizadas de acordo com seu serviço, enquanto uma dimensão é uma forma lógica de agrupar métricas que têm algo em comum — como métricas pertencentes à mesma função do Lambda. Por fim, as métricas são os pontos de dados reais que são emitidos e agrupados de acordo com seu namespace e dimensões.
+
+Cada serviço da AWS, como Lambda ou API Gateway, tem seu próprio namespace e, se você abrir o console Cloudwatch Metrics, verá um para qualquer serviço que estiver usando e que esteja emitindo métricas no momento. Todos eles são prefixados usando AWS/quando especificados programaticamente, o que é importante lembrar mais tarde, quando discutirmos como adicioná-los aos painéis, pois esse prefixo não é mostrado no console. Os namespaces fornecem a nós, como desenvolvedores, uma maneira de manter nossos vários serviços organizados para que possamos encontrar rapidamente as métricas mais relevantes para quaisquer problemas que possamos estar investigando. Por padrão, todas as suas métricas EMF irão para um namespace chamado aws-embedded-metrics. Para melhorar a legibilidade, você precisa substituir isso chamando MetricsLogger.setNamespace() em seu código. Por exemplo, na imagem abaixo, algumas das métricas tiveram seu namespace alterado para DeliveryApi para corresponder ao nosso serviço. Um bom uso para namespaces diferentes seria se você tivesse microsserviços separados hospedados na AWS na mesma conta e desejasse navegar rapidamente para as métricas de um específico sem examinar cada métrica personalizada na conta.
+
+
+Dentro de um namespace, também existem agrupamentos chamados dimensões. Uma dimensão pode ser considerada como um rótulo para uma métrica. Cada métrica que você cria pode ter até 10 dimensões associadas a ela, e esse “conjunto de dimensões” forma um identificador exclusivo para a métrica. Em essência, são maneiras de marcar suas métricas para que você possa criar várias métricas que compartilham o mesmo nome. Por exemplo, em nosso serviço, temos várias funções do Lambda que se conectam ao mesmo banco de dados. Queríamos criar uma métrica “SQLExceptions” para cada função e, por isso, adicionamos o nome da função como uma dimensão das métricas emitidas por cada Lambda. As dimensões são um conceito importante no Cloudwatch, porque fazem parte da identidade de uma métrica. Dessa forma, se você deseja exibir suas métricas em um painel ou definir um alarme para elas, precisa saber a dimensão exata definida para uma métrica específica.
+
+
+II. Usando o Embedded Metrics Format (EMF) em Java Lambdas
+Agora que sabemos como as métricas são organizadas, podemos começar a criar algumas próprias. Felizmente, a AWS fornece uma maneira conveniente de emitir métricas de seus Lambdas, chamada Embedded Metrics Format. O Embedded Metrics Format, ou EMF, é um padrão de log em formato JSON implementado pela AWS que permite imprimir instruções de log diretamente no console e registrá-las como métricas no Cloudwatch. Isso é ótimo porque significa que você não precisa fazer nenhuma chamada de API extra para outros serviços de seus Lambdas, você pode simplesmente escrever logs que são coletados como métricas automaticamente.
+
+Embora seja possível formatar seus logs no Embedded Metrics Format você mesmo, a AWS fornece bibliotecas para facilitar esse processo. Em Java, existe a útil biblioteca aws-embedded-metrics-format que fornece wrappers para que você não precise formatar nenhum JSON manualmente. Em vez disso, basta instanciar uma instância do MetricsLogger e usar as funções integradas para organizar e emitir suas métricas. Veja a seguir um exemplo da página do Github mostrando tudo o que é necessário para emitir uma métrica personalizada em uma função Java Lambda.
+
+
+Preste muita atenção ao .flush() no final do exemplo. Sem ele, sua função nunca imprimirá nenhuma métrica e, por experiência, é muito frustrante tentar descobrir por que você não consegue ver nenhuma nos logs do Cloudwatch ou no console de métricas depois de configurar meticulosamente todas as métricas possíveis em seu serviço . Lembre-se de que, se você configurou tudo corretamente, deverá ver o JSON da métrica no grupo de logs do seu Lambda, no console do Cloudwatch Logs.
+
+*Importante: Embora não mostrado neste exemplo, é muito importante não chamar MetricsLogger.putDimensions() dentro do método manipulador e, em vez disso, chamá-lo dentro do construtor do Lambdas. Cada chamada sucessiva para MetricsLogger.putDimensions() adicionará outro conjunto de dimensões ao JSON que obtém a saída no Cloudwatch e, subsequentemente, fará com que suas somas de métricas fiquem incorretas. Isso ocorre porque os valores serão registrados várias vezes quando a mesma instância do Lambda for chamada várias vezes seguidas enquanto ainda estiver quente. Veja como o campo “Dimensões” no JSON abaixo tem dois índices como resultado da chamada do Lambda duas vezes seguidas quando as dimensões são adicionadas no método do manipulador. Se fosse chamado novamente, haveria três índices, e a estatística SUM na métrica seria o triplo do valor correto quando formos grafá-la.
+
+É importante observar aqui que há várias dimensões que são adicionadas automaticamente às nossas métricas personalizadas quando usamos o Formato de métricas incorporadas. Você pode adicionar essas dimensões em seus Lambdas chamando MetricsLogger.putDimensions() ou pode sobrescrevê-las totalmente usando MetricsLogger.setDimensions(). Qualquer uma das alternativas funciona, mas lembre-se de que você precisa passar a dimensão exata definida para o objeto Métrica para adicionar a métrica ao seu painel. Pessoalmente, eu recomendaria substituir as dimensões padrão e apenas adicionar as suas próprias, pois as dimensões padrão exigem que você acompanhe mais valores em seu código e geralmente podem ser facilmente vinculadas às suas funções independentemente.
+
+Você também pode projetar o layout do seu painel para que seja mais fácil de ler rapidamente. Por exemplo, você pode fazer um gráfico ocupar toda a largura do painel ou colocar vários widgets lado a lado. Lembre-se de que a ordem em que você passa os widgets para addWidgets() é a ordem em que eles aparecerão no seu painel. Depois de adicionar widgets ao seu painel, você terá algo como o que está abaixo, onde poderá acompanhar facilmente o que está acontecendo em seu serviço.
+
+========
+
