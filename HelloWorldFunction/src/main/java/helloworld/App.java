@@ -12,6 +12,13 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import software.amazon.cloudwatchlogs.emf.exception.DimensionSetExceededException;
+import software.amazon.cloudwatchlogs.emf.exception.InvalidDimensionException;
+import software.amazon.cloudwatchlogs.emf.exception.InvalidMetricException;
+import software.amazon.cloudwatchlogs.emf.logger.MetricsLogger;
+import software.amazon.cloudwatchlogs.emf.model.DimensionSet;
+import software.amazon.cloudwatchlogs.emf.model.StorageResolution;
+import software.amazon.cloudwatchlogs.emf.model.Unit;
 
 /**
  * Handler for requests to Lambda function.
@@ -25,6 +32,28 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
 
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
                 .withHeaders(headers);
+
+        MetricsLogger logger = new MetricsLogger();
+
+        try {
+            logger.putDimensions(DimensionSet.of("Service", "Count"));
+            logger.putMetric("ProcessingLatency", 60, Unit.MILLISECONDS);
+            logger.putMetric("CPU Utilization", 30, Unit.PERCENT, StorageResolution.HIGH);
+        } catch (InvalidDimensionException | InvalidMetricException | DimensionSetExceededException e) {
+            System.out.println(e);
+        }
+
+        logger.putProperty("AccountId", "123456789");
+        logger.putProperty("RequestId", "422b1569-16f6-4a03-b8f0-fe3fd9b100f8");
+        logger.putProperty("DeviceId", "61270781-c6ac-46f1-baf7-22c808af8162");
+        Map<String, Object> payLoad = new HashMap<>();
+        payLoad.put("sampleTime", 123456789);
+        payLoad.put("temperature", 273.0);
+        payLoad.put("pressure", 101.3);
+        logger.putProperty("Payload", payLoad);
+        logger.flush();
+
+
         try {
             final String pageContents = this.getPageContents("https://checkip.amazonaws.com");
             String output = String.format("{ \"message\": \"hello world\", \"location\": \"%s\" }", pageContents);
